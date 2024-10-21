@@ -26,13 +26,33 @@ def parse_arguments():
     )
     parser.add_argument("-v", "--verbose", action='count', default=0, help="show verbose log output.")
     parser.add_argument("-q", "--quiet", action='store_true', help="show only error log output.")
+    parser.add_argument("--start", action='store_true', help="Start all containers matching the specified label")
+    parser.add_argument("--stop", action='store_true', help="Stop all containers matching the specified label")
     return parser.parse_args()
+
+def configure_logging(args):
+    """Configure logging based on command line arguments."""
+    if args.quiet:
+        log_level = logging.ERROR
+    elif args.verbose > 0:
+        log_level = max(logging.DEBUG, logging.WARNING - args.verbose * 10)
+    else:
+        log_level = logging.INFO
+
+    logging.basicConfig(
+        level=log_level,
+        format='%(message)s',
+        datefmt="[%X]",
+        handlers=[RichHandler()]
+    )
 
 def check_network_mount(mount_point):
     """Check if the network mount is accessible."""
-    if not mount_point.exists():
+    # TODO: add timeout, w/try-catch
+    if not mount_point.is_mount():
         return False, f"Mount point {mount_point} does not exist"
     
+    # TODO: add timeout, w/try-catch
     if not os.access(mount_point, os.R_OK):
         return False, f"Mount point {mount_point} is not accessible"
     
@@ -73,22 +93,6 @@ def start_labeled_containers(label):
             count += 1
     return count
 
-def configure_logging(args):
-    """Configure logging based on command line arguments."""
-    if args.quiet:
-        log_level = logging.ERROR
-    elif args.verbose > 0:
-        log_level = max(logging.DEBUG, logging.WARNING - args.verbose * 10)
-    else:
-        log_level = logging.INFO
-
-    logging.basicConfig(
-        level=log_level, 
-        format='%(message)s', 
-        datefmt="[%X]", 
-        handlers=[RichHandler()]
-    )
-
 def main():
     """Main function to run the kill switch script."""
     args = parse_arguments()
@@ -97,8 +101,19 @@ def main():
     mount_point = args.mount_point.resolve()
     label_name = args.label_name
 
+    """Temporary container administration"""
+    if args.start:
+        started_count = start_labeled_containers(label_name)
+        if started_count > 0:
+            logging.info(f"Started {started_count} containers with label '{label_name}'")
+    elif args.stop:
+        stopped_count = stop_labeled_containers(label_name)
+        if stopped_count > 0:
+            logging.info(f"Stopped {stopped_count} containers with label '{label_name}'")
+
     is_accessible, message = check_network_mount(mount_point)
 
+    # TODO: add webhook
     if not is_accessible:
         logging.error(message)
         stopped_count = stop_labeled_containers(label_name)
@@ -110,6 +125,6 @@ def main():
 #        started_count = start_labeled_containers(label_name)
 #        if started_count > 0:
 #            logging.info(f"Started {started_count} containers with label '{label_name}'")
-#
+
 if __name__ == "__main__":
     main()
